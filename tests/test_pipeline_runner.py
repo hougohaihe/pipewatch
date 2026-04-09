@@ -9,6 +9,7 @@ from pipewatch.run_logger import RunLogger, RunStatus
 
 @pytest.fixture()
 def mock_logger():
+    """Create a mock RunLogger with default return values."""
     logger = MagicMock(spec=RunLogger)
     logger.log_start.return_value = "run-abc"
     return logger
@@ -16,6 +17,7 @@ def mock_logger():
 
 @pytest.fixture()
 def mock_dispatcher():
+    """Create a mock AlertDispatcher."""
     from pipewatch.alert_hooks import AlertDispatcher
     return MagicMock(spec=AlertDispatcher)
 
