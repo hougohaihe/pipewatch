@@ -63,3 +63,15 @@ class NotificationThrottle:
     def last_alert_time(self, pipeline: str) -> Optional[float]:
         """Return the Unix timestamp of the last alert, or None."""
         return self._state.get(pipeline)
+
+    def seconds_until_next_alert(self, pipeline: str) -> float:
+        """Return the number of seconds to wait before the next alert is allowed.
+
+        Returns 0.0 if an alert may be sent immediately.
+        """
+        last_alerted: Optional[float] = self._state.get(pipeline)
+        if last_alerted is None:
+            return 0.0
+        elapsed = time.time() - last_alerted
+        remaining = self.policy.min_interval_seconds - elapsed
+        return max(0.0, remaining)
