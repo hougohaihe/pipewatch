@@ -14,6 +14,12 @@ def build_tag_index_from_config(config: Dict[str, Any]) -> TagIndex:
 
     Expected keys:
         index_file (str, required): path to the JSON tag index file.
+
+    Raises:
+        KeyError: if 'index_file' is missing from the config.
+        TypeError: if 'index_file' is not a string.
+        ValueError: if 'index_file' is an empty or whitespace-only string.
+        FileNotFoundError: if the resolved index file path does not exist.
     """
     if "index_file" not in config:
         raise KeyError("tagger config must include 'index_file'")
@@ -24,7 +30,11 @@ def build_tag_index_from_config(config: Dict[str, Any]) -> TagIndex:
     if not index_file.strip():
         raise ValueError("'index_file' must not be empty")
 
-    return TagIndex(index_file=Path(index_file).expanduser())
+    resolved = Path(index_file).expanduser()
+    if not resolved.exists():
+        raise FileNotFoundError(f"Tag index file not found: {resolved}")
+
+    return TagIndex(index_file=resolved)
 
 
 def load_tag_index_from_file(config_path: str) -> TagIndex:
