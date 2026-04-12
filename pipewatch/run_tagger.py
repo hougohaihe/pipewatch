@@ -61,3 +61,19 @@ class TagIndex:
         if removed:
             self._save()
         return removed
+
+    def rename_tag(self, old_tag: str, new_tag: str) -> bool:
+        """Rename a tag, preserving all associated run_ids.
+
+        Returns True if the tag was renamed, False if old_tag did not exist.
+        Raises ValueError if new_tag already exists in the index.
+        """
+        if old_tag not in self._index:
+            return False
+        if new_tag in self._index:
+            raise ValueError(
+                f"Tag '{new_tag}' already exists; merge manually if intended."
+            )
+        self._index[new_tag] = self._index.pop(old_tag)
+        self._save()
+        return True
