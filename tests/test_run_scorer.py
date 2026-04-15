@@ -1,5 +1,3 @@
-"""Tests for RunScorer and PipelineScore."""
-
 from __future__ import annotations
 
 import json
@@ -17,101 +15,136 @@ def _write_records(path: Path, records: list) -> None:
 
 
 @pytest.fixture
-def log_file(tmp_path):
-    return tmp_path / "runs.jsonl"
+def log_file(tmp_path: Path) -> Path:
+    return tmp_path / "runs.log"
 
 
 @pytest.fixture
-def scorer(log_file):
+def scorer(log_file: Path) -> RunScorer:
     return RunScorer(log_file=str(log_file))
 
 
-def test_score_all_returns_empty_for_missing_file(scorer):
-    assert scorer.score_all() == []
+def test_score_all_returns_empty_for_missing_file(scorer: RunScorer) -> None:
+    assert scorer.score_all() == {}
 
 
-def test_score_pipeline_returns_none_for_unknown_pipeline(log_file, scorer):
-    _write_records(log_file, [{"pipeline": "alpha", "status": "success", "duration_seconds": 1.0}])
-    assert scorer.score_pipeline("ghost") is None
+def test_score_pipeline_returns_none_for_unknown_pipeline(
+    scorer: RunScorer, log_file: Path
+) -> None:
+    _write_records(log_file, [{"pipeline": "etl", "status": "success", "duration_seconds": 10}])
+    assert scorer.score_pipeline("nonexistent") is None
 
 
-def test_score_pipeline_perfect_score(log_file, scorer):
-    records = [
-        {"pipeline": "alpha", "status": "success", "duration_seconds": 2.0},
-        {"pipeline": "alpha", "status": "success", "duration_seconds": 3.0},
-    ]
-    _write_records(log_file, records)
-    ps = scorer.score_pipeline("alpha")
+def test_score_all_returns_pipeline_score_instances(
+    scorer: RunScorer, log_file: Path
+) -> None:
+    _write_records(
+        log_file,
+        [
+            {"pipeline": "etl", "status": "success", "duration_seconds": 20},
+            {"pipeline": "etl", "status": "failure", "duration_seconds": 30},
+        ],
+    )
+    result = scorer.score_all()
+    assert "etl" in result
+    assert isinstance(result["etl"], PipelineScore)
+
+
+def test_score_run_count(scorer: RunScorer, log_file: Path) -> None:
+    _write_records(
+        log_file,
+        [
+            {"pipeline": "etl", "status": "success", "duration_seconds": 5},
+            {"pipeline": "etl", "status": "success", "duration_seconds": 5},
+            {"pipeline": "etl", "status": "failure", "duration_seconds": 5},
+        ],
+    )
+    ps = scorer.score_all()["etl"]
+    assert ps.run_count == 3
+    assert ps.success_count == 2
+    assert ps.failure_count == 1
+
+
+def test_score_pipeline_full_success_gives_high_score(
+    log_file: Path,
+) -> None:
+    scorer = RunScorer(str(log_file), max_expected_duration=300.0)
+    _write_records(
+        log_file,
+        [{"pipeline": "etl", "status": "success", "duration_seconds": 1} for _ in range(5)],
+    )
+    ps = scorer.score_pipeline("etl")
     assert ps is not None
-    assert ps.score == pytest.approx(100.0)
-    assert ps.grade == "A"
-    assert ps.failure_streak == 0
+    assert ps.score > 90.0
 
 
-def test_score_pipeline_failure_streak_reduces_score(log_file, scorer):
-    records = [
-        {"pipeline": "beta", "status": "success", "duration_seconds": 1.0},
-        {"pipeline": "beta", "status": "failure", "duration_seconds": 0.5},
-        {"pipeline": "beta", "status": "failure", "duration_seconds": 0.5},
-    ]
-    _write_records(log_file, records)
-    ps = scorer.score_pipeline("beta")
+def test_score_pipeline_all_failures_gives_low_score(
+    log_file: Path,
+) -> None:
+    scorer = RunScorer(str(log_file))
+    _write_records(
+        log_file,
+        [{"pipeline": "etl", "status": "failure", "duration_seconds": 400} for _ in range(4)],
+    )
+    ps = scorer.score_pipeline("etl")
     assert ps is not None
-    assert ps.failure_streak == 2
-    assert ps.score < 100.0
+    assert ps.score < 20.0
 
 
-def test_score_pipeline_all_failures_clamps_to_zero(log_file, scorer):
-    records = [{"pipeline": "gamma", "status": "failure"} for _ in range(10)]
-    _write_records(log_file, records)
-    ps = scorer.score_pipeline("gamma")
+def test_score_clamped_to_100(log_file: Path) -> None:
+    scorer = RunScorer(str(log_file), success_weight=1.0, duration_weight=0.0)
+    _write_records(
+        log_file,
+        [{"pipeline": "p", "status": "success", "duration_seconds": 1}],
+    )
+    ps = scorer.score_pipeline("p")
     assert ps is not None
-    assert ps.score == pytest.approx(0.0)
-    assert ps.grade == "F"
+    assert ps.score <= 100.0
 
 
-def test_score_pipeline_avg_duration_computed(log_file, scorer):
-    records = [
-        {"pipeline": "delta", "status": "success", "duration_seconds": 4.0},
-        {"pipeline": "delta", "status": "success", "duration_seconds": 6.0},
-    ]
-    _write_records(log_file, records)
-    ps = scorer.score_pipeline("delta")
-    assert ps.avg_duration == pytest.approx(5.0)
-
-
-def test_score_pipeline_avg_duration_none_when_missing(log_file, scorer):
-    records = [{"pipeline": "epsilon", "status": "success"}]
-    _write_records(log_file, records)
-    ps = scorer.score_pipeline("epsilon")
+def test_avg_duration_is_none_when_no_duration_field(
+    scorer: RunScorer, log_file: Path
+) -> None:
+    _write_records(log_file, [{"pipeline": "p", "status": "success"}])
+    ps = scorer.score_pipeline("p")
+    assert ps is not None
     assert ps.avg_duration is None
 
 
-def test_score_all_returns_all_pipelines(log_file, scorer):
-    records = [
-        {"pipeline": "a", "status": "success", "duration_seconds": 1.0},
-        {"pipeline": "b", "status": "failure", "duration_seconds": 2.0},
-    ]
-    _write_records(log_file, records)
-    results = scorer.score_all()
-    names = [r.pipeline for r in results]
-    assert "a" in names and "b" in names
-
-
-def test_pipeline_score_to_dict_keys(log_file, scorer):
-    _write_records(log_file, [{"pipeline": "zeta", "status": "success", "duration_seconds": 1.5}])
-    ps = scorer.score_pipeline("zeta")
+def test_to_dict_contains_expected_keys(scorer: RunScorer, log_file: Path) -> None:
+    _write_records(
+        log_file,
+        [{"pipeline": "p", "status": "success", "duration_seconds": 10}],
+    )
+    ps = scorer.score_pipeline("p")
+    assert ps is not None
     d = ps.to_dict()
-    assert set(d.keys()) == {"pipeline", "score", "success_rate", "avg_duration", "failure_streak", "grade"}
+    for key in ("pipeline", "run_count", "success_count", "failure_count", "avg_duration", "score"):
+        assert key in d
 
 
-def test_pipeline_score_grade_boundaries():
-    def make(score):
-        ps = PipelineScore(pipeline="x", score=score, success_rate=1.0, avg_duration=None, failure_streak=0)
-        return ps.grade
+def test_multiple_pipelines_scored_independently(
+    scorer: RunScorer, log_file: Path
+) -> None:
+    _write_records(
+        log_file,
+        [
+            {"pipeline": "a", "status": "success", "duration_seconds": 5},
+            {"pipeline": "b", "status": "failure", "duration_seconds": 5},
+        ],
+    )
+    result = scorer.score_all()
+    assert "a" in result and "b" in result
+    assert result["a"].score > result["b"].score
 
-    assert make(95.0) == "A"
-    assert make(80.0) == "B"
-    assert make(60.0) == "C"
-    assert make(40.0) == "D"
-    assert make(20.0) == "F"
+
+def test_pipeline_score_rejects_invalid_score() -> None:
+    with pytest.raises(ValueError):
+        PipelineScore(
+            pipeline="p",
+            run_count=1,
+            success_count=1,
+            failure_count=0,
+            avg_duration=5.0,
+            score=150.0,
+        )
