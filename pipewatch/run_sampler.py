@@ -47,6 +47,14 @@ class RunSampler:
                         pass
         return records
 
+    def pipelines(self) -> List[str]:
+        """Return a sorted list of distinct pipeline names found in the log file."""
+        records = self._load_records()
+        names = sorted(
+            {r["pipeline"] for r in records if r.get("pipeline") is not None}
+        )
+        return names
+
     def sample(
         self,
         n: int,
