@@ -30,6 +30,9 @@ class ScheduleConfig:
 
 def build_schedule_from_config(config: dict[str, Any]) -> ScheduleConfig:
     """Build a ScheduleConfig from a raw config dict."""
+    if not isinstance(config, dict):
+        raise TypeError(f"each schedule entry must be a JSON object, got {type(config).__name__}")
+
     pipeline = config.get("pipeline")
     if not pipeline or not isinstance(pipeline, str):
         raise ValueError("schedule config must include a non-empty 'pipeline' string")
@@ -51,7 +54,14 @@ def build_schedule_from_config(config: dict[str, Any]) -> ScheduleConfig:
 
 def load_schedules_from_file(path: str | Path) -> list[ScheduleConfig]:
     """Load a list of ScheduleConfig objects from a JSON file."""
-    data = json.loads(Path(path).read_text())
+    file_path = Path(path)
+    try:
+        data = json.loads(file_path.read_text())
+    except FileNotFoundError:
+        raise FileNotFoundError(f"schedule config file not found: {file_path}")
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"schedule config file contains invalid JSON: {exc}") from exc
+
     if not isinstance(data, list):
         raise ValueError("schedule config file must contain a JSON array")
     return [build_schedule_from_config(entry) for entry in data]
