@@ -70,6 +70,11 @@ class RunPager:
         total_records = len(records)
         total_pages = max(1, -(-total_records // self._page_size))  # ceiling div
 
+        if page > total_pages:
+            raise PagerError(
+                f"page {page} is out of range: only {total_pages} page(s) available"
+            )
+
         start = (page - 1) * self._page_size
         end = start + self._page_size
         page_records = records[start:end]
