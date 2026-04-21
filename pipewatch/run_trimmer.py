@@ -48,13 +48,29 @@ class RunTrimmer:
     def _load_records(self) -> List[Dict]:
         if not os.path.exists(self.log_file):
             return []
-        with open(self.log_file, "r") as fh:
-            return [json.loads(line) for line in fh if line.strip()]
+        try:
+            with open(self.log_file, "r") as fh:
+                records = []
+                for lineno, line in enumerate(fh, start=1):
+                    if not line.strip():
+                        continue
+                    try:
+                        records.append(json.loads(line))
+                    except json.JSONDecodeError as exc:
+                        raise TrimError(
+                            f"Invalid JSON on line {lineno} of '{self.log_file}': {exc}"
+                        ) from exc
+                return records
+        except OSError as exc:
+            raise TrimError(f"Could not read '{self.log_file}': {exc}") from exc
 
     def _save_records(self, records: List[Dict]) -> None:
-        with open(self.log_file, "w") as fh:
-            for record in records:
-                fh.write(json.dumps(record) + "\n")
+        try:
+            with open(self.log_file, "w") as fh:
+                for record in records:
+                    fh.write(json.dumps(record) + "\n")
+        except OSError as exc:
+            raise TrimError(f"Could not write '{self.log_file}': {exc}") from exc
 
     def trim(self) -> TrimResult:
         """Truncate oversized string fields in all records and persist."""
